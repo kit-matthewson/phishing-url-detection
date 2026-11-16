@@ -1,2 +1,7 @@
 .venv/
+.vscode/
 .mypy_cache/
+
+code/__pycache__/
+code/datasets/
+code/graphs/
