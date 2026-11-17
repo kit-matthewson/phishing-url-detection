@@ -94,8 +94,8 @@ class URLGraph:
         Returns:
             A set of unique, non-empty, non-stop-word segments from the URL.
         """
-        HOSTNAME_SPLIT = re.compile(r"[\.]")
-        PATH_SPLIT = re.compile(r"[\/.!&,#$%;&:]")
+        HOSTNAME_SPLIT = re.compile(r"[\.]") # Split on '.'
+        PATH_SPLIT = re.compile(r"[\/.!&,#$%;&:]") # Split on '/', '.', '!', '&', ',', '#', '$', '%', ';', and ':'
         QUERY_SPLIT = re.compile(r"[=&]")
 
         words = set()

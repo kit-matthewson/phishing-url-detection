@@ -16,28 +16,19 @@ class Predictor:
     def __init__(
         self,
         graph: URLGraph,
-        embeddings: dict[str, list[float]] | None = None,
-        compatibility_type: str = "distance",
+        embeddings: dict[str, list[float]],
     ):
         """
         Initialize the Predictor with a URLGraph.
 
         Args:
             graph: An instance of URLGraph containing the URL nodes and their relationships.
-            embeddings: Optional vectors keyed by graph node name. Euclidean distances
+            embeddings: Vectors keyed by graph node name. Euclidean distances
                 between vectors are used as edge distances.
-            compatibility_type: The message compatibility rule, either ``"distance"``
-                or ``"polonium"``.
         """
 
         self._graph: nx.Graph = graph.get_graph()
         self._embeddings = embeddings
-        self._compatibility_type = compatibility_type
-
-        if compatibility_type not in {"polonium", "distance"}:
-            raise ValueError(
-                f"Unknown compatibility type: {compatibility_type!r}. Expected 'polonium' or 'distance'."
-            )
 
         # Get the set of nodes that have a known label (malicious or not malicious)
         self._has_ground_truth = np.array(
@@ -94,7 +85,7 @@ class Predictor:
                         f"Training Node {node!r} has a label that is neither True nor False."
                     )
 
-            self._set_edge_potentials()
+            self._set_edge_sims()
 
             # Perform belief propogation
             for epoch in tqdm(range(self.MAX_EPOCHS), desc="Epochs", unit="epoch"):
@@ -106,7 +97,7 @@ class Predictor:
             print()
 
         averages = np.mean(fold_metrics, axis=0)
-        
+
         print(
             "Cross-validation averages: "
             f"precision={averages[0]:.3f}, recall={averages[1]:.3f}, "
@@ -149,56 +140,25 @@ class Predictor:
                     if graph.nodes[nbr]["label"] == None:
                         self._send_msg(node, nbr)
 
-    def _set_edge_potentials(self):
-        if self._embeddings is None:
-            for edge in self._graph.edges():
-                self._graph.edges[edge]["distance"] = 1.0
-                self._graph.edges[edge]["sim"] = 0.5
-            return
-
-        edge_distances = {}
-
+    def _set_edge_sims(self):
         for sender, receiver in self._graph.edges():
             try:
                 sender_embedding = np.asarray(self._embeddings[sender], dtype=float)
-                receiver_embedding = np.asarray(
-                    self._embeddings[receiver], dtype=float
-                )
+                receiver_embedding = np.asarray(self._embeddings[receiver], dtype=float)
             except KeyError as error:
-                raise ValueError(
-                    f"Embedding is missing for graph node {error.args[0]!r}."
-                ) from error
+                raise ValueError(f"Embedding is missing for node {error.args[0]!r}.")
 
-            if (
-                sender_embedding.ndim != 1
-                or receiver_embedding.ndim != 1
-                or sender_embedding.shape != receiver_embedding.shape
-            ):
-                raise ValueError(
-                    f"Embedding dimensions do not match for edge "
-                    f"{sender!r}, {receiver!r}."
-                )
+            # Use cosine similarity to set the similarity attribute for the edge
+            dot_product = np.dot(sender_embedding, receiver_embedding)
+            norm_sender = np.linalg.norm(sender_embedding)
+            norm_receiver = np.linalg.norm(receiver_embedding)
 
-            distance = float(np.linalg.norm(sender_embedding - receiver_embedding))
-            if not np.isfinite(distance):
-                raise ValueError(
-                    f"Embedding distance is not finite for edge "
-                    f"{sender!r}, {receiver!r}."
-                )
-            edge_distances[(sender, receiver)] = distance
+            if norm_sender == 0 or norm_receiver == 0:
+                similarity = 0.0
+            else:
+                similarity = float(dot_product / (norm_sender * norm_receiver))
 
-        distances = np.array(list(edge_distances.values()))
-        min_distance = float(distances.min())
-        distance_range = float(distances.max() - min_distance)
-
-        for edge, distance in edge_distances.items():
-            normalised_distance = (
-                0.5
-                if distance_range == 0
-                else (distance - min_distance) / distance_range
-            )
-            self._graph.edges[edge]["distance"] = normalised_distance
-            self._graph.edges[edge]["sim"] = 1.0 - normalised_distance
+            self._graph.edges[sender, receiver]["sim"] = similarity
 
     def _set_predictions(self):
         for _, data in self._graph.nodes(data=True):
@@ -249,7 +209,7 @@ class Predictor:
         receiver_data["msg_comp"][1] += msg[1] - previous_msg[1]
         receiver_data["msgbox"][sender] = msg
 
-    def _min_sum(self, sender, receiver):
+    def _min_sum(self, sender, receiver, compat_threshold1=0.7, compat_threshold2=0.7):
         """
         Compute the minimum sum message from the sender to the receiver based on the sender's current beliefs and the edge potential.
 
@@ -259,8 +219,6 @@ class Predictor:
         Returns:
             A list containing the computed message for both labels (malicious and benign).
         """
-        EPSILON = 1e-10
-
         sender_data = self._graph.nodes[sender]
 
         new_msg = [0.0, 0.0]
@@ -277,30 +235,30 @@ class Predictor:
             )
             p_related += sender_data["msg_comp"][1] - sender_data["msgbox"][receiver][1]
 
-            match self._compatibility_type:
-                case "polonium":
-                    if i == 0:
-                        p_not_related += 0.5 - EPSILON
-                        p_related += 0.5 + EPSILON
-                    else:
-                        p_not_related += 0.5 + EPSILON
-                        p_related += 0.5 - EPSILON
-                case "distance":
-                    p_not_related += (
-                        0 if i == 0 else self._graph.edges[sender, receiver]["distance"]
-                    )
-                    p_related += (
-                        self._graph.edges[sender, receiver]["distance"] if i == 0 else 0
-                    )
-                case _:
-                    raise ValueError(
-                        f"Unknown compatibility type: {self._compatibility_type}"
-                    )
+            # Use the 'table3' smoothing method
+            p_not_related += (
+                np.min(
+                    [compat_threshold1, 1 - self._graph.edges[sender, receiver]["sim"]]
+                )
+                if i == 0
+                else np.max(
+                    [compat_threshold2, self._graph.edges[sender, receiver]["sim"]]
+                )
+            )
+            p_related += (
+                np.max([compat_threshold2, self._graph.edges[sender, receiver]["sim"]])
+                if i == 0
+                else np.min(
+                    [compat_threshold1, 1 - self._graph.edges[sender, receiver]["sim"]]
+                )
+            )
 
             new_msg[i] = min(p_not_related, p_related)
 
         # Normalise the message to prevent numerical issues
-        return [m - min(new_msg) for m in new_msg]
+        new_msg = [m - min(new_msg) for m in new_msg]
+
+        return new_msg
 
     def _metrics(self, nodes) -> tuple[float, float, float, float]:
         labelled = [
