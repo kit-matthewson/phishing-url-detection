@@ -1,5 +1,11 @@
 import networkx as nx
 import numpy as np
+from sklearn.metrics import (  # type: ignore
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 from sklearn.model_selection import KFold  # type: ignore
 from tqdm import tqdm  # type: ignore
 from url_graph import URLGraph, url_to_node_name
@@ -10,8 +16,8 @@ class Predictor:
     A class to predict the label of a URL based on its graph representation using loopy belief propagation.
     """
 
-    N_FOLDS = 5
-    MAX_EPOCHS = 5
+    N_FOLDS = 3
+    MAX_EPOCHS = 3
 
     def __init__(
         self,
@@ -39,7 +45,7 @@ class Predictor:
             ]
         )
 
-    def train(self):
+    def train(self, output=True):
         kf = KFold(n_splits=self.N_FOLDS, shuffle=True, random_state=42)
         fold_metrics = []
 
@@ -88,21 +94,29 @@ class Predictor:
             self._set_edge_sims()
 
             # Perform belief propogation
-            for epoch in tqdm(range(self.MAX_EPOCHS), desc="Epochs", unit="epoch"):
+            if output:
+                epoch_iter = tqdm(range(self.MAX_EPOCHS), desc="Epochs", unit="epoch")
+            else:
+                epoch_iter = range(self.MAX_EPOCHS)
+            
+            for epoch in epoch_iter:
                 self._propogate_messages()
                 self._set_predictions()
 
             fold_metrics.append(self._metrics(test_nodes))
-            self._print_fold_performance(len(fold_metrics), fold_metrics[-1])
-            print()
+            
+            if output:
+                self._print_fold_performance(len(fold_metrics), fold_metrics[-1])
+                print()
 
         averages = np.mean(fold_metrics, axis=0)
 
-        print(
-            "Cross-validation averages: "
-            f"precision={averages[0]:.3f}, recall={averages[1]:.3f}, "
-            f"f1={averages[2]:.3f}, accuracy={averages[3]:.3f}"
-        )
+        if output:
+            print(
+                "Cross-validation averages: "
+                f"precision={averages[0]:.3f}, recall={averages[1]:.3f}, "
+                f"f1={averages[2]:.3f}, accuracy={averages[3]:.3f}"
+            )
 
     def predict(self, url: str) -> int:
         """
@@ -266,41 +280,20 @@ class Predictor:
             for node in nodes
             if self._graph.nodes[node].get("malicious") is not None
         ]
+        
         if not labelled:
             return 0.0, 0.0, 0.0, 0.0
 
         actual = [int(self._graph.nodes[node]["malicious"]) for node in labelled]
         predicted = [self._prediction(node) for node in labelled]
 
-        true_positive = sum(
-            target == 1 and guess == 1 for target, guess in zip(actual, predicted)
-        )
-        false_positive = sum(
-            target == 0 and guess == 1 for target, guess in zip(actual, predicted)
-        )
-        false_negative = sum(
-            target == 1 and guess == 0 for target, guess in zip(actual, predicted)
-        )
-
-        precision = (
-            true_positive / (true_positive + false_positive)
-            if true_positive + false_positive
-            else 0.0
-        )
-        recall = (
-            true_positive / (true_positive + false_negative)
-            if true_positive + false_negative
-            else 0.0
-        )
-        f1 = (
-            (2 * precision * recall / (precision + recall))
-            if precision + recall
-            else 0.0
-        )
-        accuracy = sum(
-            target == guess for target, guess in zip(actual, predicted)
-        ) / len(labelled)
-        return precision, recall, f1, accuracy
+        # Calculate precision, recall, f1-score, and accuracy using sklearn metrics
+        precision = precision_score(actual, predicted, zero_division=0)
+        recall = recall_score(actual, predicted, zero_division=0)
+        f1 = f1_score(actual, predicted, zero_division=0)
+        accuracy = accuracy_score(actual, predicted)
+        
+        return float(precision), float(recall), float(f1), float(accuracy)
 
     def _prediction(self, node) -> int:
         predicted = self._graph.nodes[node].get("predicted_label")
