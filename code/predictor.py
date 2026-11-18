@@ -16,8 +16,8 @@ class Predictor:
     A class to predict the label of a URL based on its graph representation using loopy belief propagation.
     """
 
-    N_FOLDS = 3
-    MAX_EPOCHS = 3
+    N_FOLDS = 5
+    MAX_EPOCHS = 5
 
     def __init__(
         self,
@@ -45,7 +45,7 @@ class Predictor:
             ]
         )
 
-    def train(self, output=True):
+    def train(self, output=True) -> tuple[float, float, float, float]:
         kf = KFold(n_splits=self.N_FOLDS, shuffle=True, random_state=42)
         fold_metrics = []
 
@@ -94,8 +94,9 @@ class Predictor:
             self._set_edge_sims()
 
             # Perform belief propogation
+            epoch_iter: tqdm[int] | range
             if output:
-                epoch_iter = tqdm(range(self.MAX_EPOCHS), desc="Epochs", unit="epoch")
+                epoch_iter = tqdm(range(self.MAX_EPOCHS), desc="Epochs", unit="epoch", colour="blue")
             else:
                 epoch_iter = range(self.MAX_EPOCHS)
             
@@ -117,6 +118,8 @@ class Predictor:
                 f"precision={averages[0]:.3f}, recall={averages[1]:.3f}, "
                 f"f1={averages[2]:.3f}, accuracy={averages[3]:.3f}"
             )
+
+        return tuple(averages)
 
     def predict(self, url: str) -> int:
         """
