@@ -1,4 +1,4 @@
-# ECMM463
+# ECMM463 Coursework
 A reproduction of _Phishing URL Detection: A Network-based Approach Robust to Evasion_ by Kim et al. (2022). The paper proposes a network-based approach to phishing URL detection that is robust to evasion attacks.
 
 The code for this project consists of five Jupyter notebooks and two supplementary library files. The notebooks are:
