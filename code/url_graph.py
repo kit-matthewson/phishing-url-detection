@@ -5,6 +5,8 @@ import networkx as nx
 import nltk  # type: ignore[import-untyped]
 from nltk.corpus import stopwords  # type: ignore[import-untyped]
 
+nltk.download("stopwords")
+STOP_WORDS = set(stopwords.words("english"))
 
 class URLGraph:
     """
@@ -15,8 +17,6 @@ class URLGraph:
         """Initialize an empty URLGraph."""
         self._graph = nx.Graph()
 
-        nltk.download("stopwords")
-        self.stop_words = set(stopwords.words("english"))
 
     @staticmethod
     def read_gexf(file_path: str):
@@ -108,7 +108,7 @@ class URLGraph:
 
         # Filter out empty strings and stop words from the set of words
         words = {word for word in words if word}
-        words = words.difference(self.stop_words)
+        words = words.difference(STOP_WORDS)
 
         return words
 
