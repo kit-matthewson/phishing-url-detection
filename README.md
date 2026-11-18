@@ -8,5 +8,3 @@ The code for this project consists of five Jupyter notebooks and two supplementa
 - `baselines.ipynb`: Computes the evaluation metrics for the selected baseline models, random forest and Polonium.
 - `evasion_experiments.ipynb`: Evaluates the three models with different evasion ratios, producing the graph shown in Figure 1.
 The library file `predictor.py` contains the actual prediction implementation, and `url_graph.py` has an abstraction of a NetworkX graph specific to this domain.
-
-Suggested Repository Title: "Phishing URL Detection: A Network-based Approach Robust to Evasion"
